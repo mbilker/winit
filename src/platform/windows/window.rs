@@ -27,12 +27,15 @@ use {
 };
 use platform::platform::{Cursor, PlatformSpecificWindowBuilderAttributes, WindowId};
 use platform::platform::dpi::{dpi_to_scale_factor, get_hwnd_dpi};
-use platform::platform::events_loop::{self, EventsLoop, DESTROY_MSG_ID, INITIAL_DPI_MSG_ID};
+use platform::platform::events_loop::{self, EventsLoop, DESTROY_MSG_ID};
 use platform::platform::events_loop::WindowState;
 use platform::platform::icon::{self, IconType, WinIcon};
 use platform::platform::monitor::get_available_monitors;
 use platform::platform::raw_input::register_all_mice_and_keyboards_for_raw_input;
 use platform::platform::util;
+
+#[cfg(feature = "dpi")]
+use platform::platform::events_loop::INITIAL_DPI_MSG_ID;
 
 const WS_RESIZABLE: DWORD = winuser::WS_SIZEBOX | winuser::WS_MAXIMIZEBOX;
 
@@ -968,6 +971,7 @@ unsafe fn init(
     register_all_mice_and_keyboards_for_raw_input(real_window.0);
 
     // Register for touch events if applicable
+    #[cfg(feature = "touch")]
     {
         let digitizer = winuser::GetSystemMetrics( winuser::SM_DIGITIZER ) as u32;
         if digitizer & winuser::NID_READY != 0 {
@@ -977,19 +981,22 @@ unsafe fn init(
 
     let dpi = get_hwnd_dpi(real_window.0);
     let dpi_factor = dpi_to_scale_factor(dpi);
-    if dpi_factor != guessed_dpi_factor {
-        let (width, height): (u32, u32) = dimensions.into();
-        let mut packed_dimensions = 0;
-        // MAKELPARAM isn't provided by winapi yet.
-        let ptr = &mut packed_dimensions as *mut LPARAM as *mut WORD;
-        *ptr.offset(0) = width as WORD;
-        *ptr.offset(1) = height as WORD;
-        winuser::PostMessageW(
-            real_window.0,
-            *INITIAL_DPI_MSG_ID,
-            dpi as WPARAM,
-            packed_dimensions,
-        );
+    #[cfg(feature = "dpi")]
+    {
+        if dpi_factor != guessed_dpi_factor {
+            let (width, height): (u32, u32) = dimensions.into();
+            let mut packed_dimensions = 0;
+            // MAKELPARAM isn't provided by winapi yet.
+            let ptr = &mut packed_dimensions as *mut LPARAM as *mut WORD;
+            *ptr.offset(0) = width as WORD;
+            *ptr.offset(1) = height as WORD;
+            winuser::PostMessageW(
+                real_window.0,
+                *INITIAL_DPI_MSG_ID,
+                dpi as WPARAM,
+                packed_dimensions,
+            );
+        }
     }
 
     let window_state = {

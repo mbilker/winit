@@ -48,7 +48,7 @@ use {
     WindowEvent,
     WindowId as SuperWindowId,
 };
-use events::{DeviceEvent, Touch, TouchPhase};
+use events::DeviceEvent;
 use platform::platform::{event, Cursor, WindowId, DEVICE_ID, wrap_device_id, util};
 use platform::platform::dpi::{
     become_dpi_aware,
@@ -156,7 +156,11 @@ impl EventsLoop {
         let barrier = Arc::new(Barrier::new(2));
         let barrier_clone = barrier.clone();
 
-        let thread = thread::spawn(move || {
+        // The thread id on Windows XP
+        let thread_id = Arc::new(Mutex::new(None));
+        let thread_id_clone = thread_id.clone();
+
+        let _thread = thread::spawn(move || {
             CONTEXT_STASH.with(|context_stash| {
                 *context_stash.borrow_mut() = Some(ThreadLocalData {
                     sender: tx,
@@ -170,7 +174,19 @@ impl EventsLoop {
                 // Calling `PostThreadMessageA` on a thread that does not have an events queue yet
                 // will fail. In order to avoid this situation, we call `IsGuiThread` to initialize
                 // it.
+                eprintln!("IsGUIThread");
                 winuser::IsGUIThread(1);
+                {
+                    eprintln!("GetCurrentThreadId");
+                    let mut mutex = match thread_id_clone.lock() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("Failed to acquire mutex: {:?}", e);
+                            panic!("mutex acquisition failed");
+                        },
+                    };
+                    *mutex = Some(processthreadsapi::GetCurrentThreadId());
+                }
                 // Then only we unblock the `new()` function. We are sure that we don't call
                 // `PostThreadMessageA()` before `new()` returns.
                 barrier_clone.wait();
@@ -178,6 +194,7 @@ impl EventsLoop {
 
                 let mut msg = mem::uninitialized();
 
+                eprintln!("Entering thread event loop");
                 loop {
                     if winuser::GetMessageW(&mut msg, ptr::null_mut(), 0, 0) == 0 {
                         // Only happens if the message is `WM_QUIT`.
@@ -203,13 +220,30 @@ impl EventsLoop {
             }
         });
 
+
         // Blocks this function until the background thread has an events loop. See other comments.
         barrier.wait();
-
+        /*
         let thread_id = unsafe {
             let handle = mem::transmute(thread.as_raw_handle());
             processthreadsapi::GetThreadId(handle)
         };
+        */
+        eprintln!("Waiting for thread id");
+        let thread_id = match thread_id.lock() {
+            Ok(v) => match *v {
+                Some(v) => v,
+                None => {
+                    eprintln!("No thread id stored!");
+                    panic!("No thread id stored!");
+                },
+            },
+            Err(e) => {
+                eprintln!("Failed to acquire mutex: {:?}", e);
+                panic!("mutex acquisition failed");
+            },
+        };
+        eprintln!("Received thread id");
 
         EventsLoop {
             thread_id,
@@ -357,6 +391,10 @@ lazy_static! {
             winuser::RegisterWindowMessageA("Winit::DestroyMsg\0".as_ptr() as LPCSTR)
         }
     };
+}
+
+#[cfg(feature = "dpi")]
+lazy_static! {
     // Message sent by a `Window` after creation if it has a DPI != 96.
     // WPARAM is the the DPI (u32). LOWORD of LPARAM is width, and HIWORD is height.
     pub static ref INITIAL_DPI_MSG_ID: u32 = {
@@ -923,7 +961,9 @@ pub unsafe extern "system" fn callback(
             winuser::DefWindowProcW(window, msg, wparam, lparam)
         },
 
+        #[cfg(feature = "touch")]
         winuser::WM_TOUCH => {
+            use events::{Touch, TouchPhase};
             let pcount = LOWORD( wparam as DWORD ) as usize;
             let mut inputs = Vec::with_capacity( pcount );
             inputs.set_len( pcount );
@@ -1123,50 +1163,55 @@ pub unsafe extern "system" fn callback(
         _ => {
             if msg == *DESTROY_MSG_ID {
                 winuser::DestroyWindow(window);
-                0
-            } else if msg == *INITIAL_DPI_MSG_ID {
-                use events::WindowEvent::HiDpiFactorChanged;
-                let scale_factor = dpi_to_scale_factor(wparam as u32);
-                send_event(Event::WindowEvent {
-                    window_id: SuperWindowId(WindowId(window)),
-                    event: HiDpiFactorChanged(scale_factor),
-                });
-                // Automatically resize for actual DPI
-                let width = LOWORD(lparam as DWORD) as u32;
-                let height = HIWORD(lparam as DWORD) as u32;
-                let (adjusted_width, adjusted_height): (u32, u32) = PhysicalSize::from_logical(
-                    (width, height),
-                    scale_factor,
-                ).into();
-                // We're not done yet! `SetWindowPos` needs the window size, not the client area size.
-                let mut rect = RECT {
-                    top: 0,
-                    left: 0,
-                    bottom: adjusted_height as LONG,
-                    right: adjusted_width as LONG,
-                };
-                let dw_style = winuser::GetWindowLongA(window, winuser::GWL_STYLE) as DWORD;
-                let b_menu = !winuser::GetMenu(window).is_null() as BOOL;
-                let dw_style_ex = winuser::GetWindowLongA(window, winuser::GWL_EXSTYLE) as DWORD;
-                winuser::AdjustWindowRectEx(&mut rect, dw_style, b_menu, dw_style_ex);
-                let outer_x = (rect.right - rect.left).abs() as c_int;
-                let outer_y = (rect.top - rect.bottom).abs() as c_int;
-                winuser::SetWindowPos(
-                    window,
-                    ptr::null_mut(),
-                    0,
-                    0,
-                    outer_x,
-                    outer_y,
-                    winuser::SWP_NOMOVE
-                    | winuser::SWP_NOREPOSITION
-                    | winuser::SWP_NOZORDER
-                    | winuser::SWP_NOACTIVATE,
-                );
-                0
-            } else {
-                winuser::DefWindowProcW(window, msg, wparam, lparam)
+                return 0;
             }
+
+            #[cfg(feature = "dpi")]
+            {
+                if msg == *INITIAL_DPI_MSG_ID {
+                    use events::WindowEvent::HiDpiFactorChanged;
+                    let scale_factor = dpi_to_scale_factor(wparam as u32);
+                    send_event(Event::WindowEvent {
+                        window_id: SuperWindowId(WindowId(window)),
+                        event: HiDpiFactorChanged(scale_factor),
+                    });
+                    // Automatically resize for actual DPI
+                    let width = LOWORD(lparam as DWORD) as u32;
+                    let height = HIWORD(lparam as DWORD) as u32;
+                    let (adjusted_width, adjusted_height): (u32, u32) = PhysicalSize::from_logical(
+                        (width, height),
+                        scale_factor,
+                    ).into();
+                    // We're not done yet! `SetWindowPos` needs the window size, not the client area size.
+                    let mut rect = RECT {
+                        top: 0,
+                        left: 0,
+                        bottom: adjusted_height as LONG,
+                        right: adjusted_width as LONG,
+                    };
+                    let dw_style = winuser::GetWindowLongA(window, winuser::GWL_STYLE) as DWORD;
+                    let b_menu = !winuser::GetMenu(window).is_null() as BOOL;
+                    let dw_style_ex = winuser::GetWindowLongA(window, winuser::GWL_EXSTYLE) as DWORD;
+                    winuser::AdjustWindowRectEx(&mut rect, dw_style, b_menu, dw_style_ex);
+                    let outer_x = (rect.right - rect.left).abs() as c_int;
+                    let outer_y = (rect.top - rect.bottom).abs() as c_int;
+                    winuser::SetWindowPos(
+                        window,
+                        ptr::null_mut(),
+                        0,
+                        0,
+                        outer_x,
+                        outer_y,
+                        winuser::SWP_NOMOVE
+                        | winuser::SWP_NOREPOSITION
+                        | winuser::SWP_NOZORDER
+                        | winuser::SWP_NOACTIVATE,
+                    );
+                    return 0;
+                }
+            }
+
+            winuser::DefWindowProcW(window, msg, wparam, lparam)
         }
     }
 }

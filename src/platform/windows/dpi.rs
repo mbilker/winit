@@ -68,6 +68,7 @@ macro_rules! get_function {
     }
 }
 
+#[cfg(feature = "dpi")]
 lazy_static! {
     static ref GET_DPI_FOR_WINDOW: Option<GetDpiForWindow> = get_function!(
         "user32.dll",
@@ -83,6 +84,7 @@ lazy_static! {
     );
 }
 
+#[cfg(feature = "dpi")]
 pub fn become_dpi_aware(enable: bool) {
     if !enable { return; }
     static ENABLE_DPI_AWARENESS: Once = ONCE_INIT;
@@ -114,7 +116,12 @@ pub fn become_dpi_aware(enable: bool) {
     } });
 }
 
+#[cfg(not(feature = "dpi"))]
+pub fn become_dpi_aware(_enable: bool) {
+}
+
 pub fn enable_non_client_dpi_scaling(hwnd: HWND) {
+    #[cfg(feature = "dpi")]
     unsafe {
         if let Some(EnableNonClientDpiScaling) = *ENABLE_NON_CLIENT_DPI_SCALING {
             EnableNonClientDpiScaling(hwnd);
@@ -123,6 +130,7 @@ pub fn enable_non_client_dpi_scaling(hwnd: HWND) {
 }
 
 pub fn get_monitor_dpi(hmonitor: HMONITOR) -> Option<u32> {
+    #[cfg(feature = "dpi")]
     unsafe {
         if let Some(GetDpiForMonitor) = *GET_DPI_FOR_MONITOR {
             // We are on Windows 8.1 or later.
@@ -144,6 +152,7 @@ pub fn dpi_to_scale_factor(dpi: u32) -> f64 {
     dpi as f64 / BASE_DPI as f64
 }
 
+#[cfg(feature = "dpi")]
 pub unsafe fn get_hwnd_dpi(hwnd: HWND) -> u32 {
     let hdc = winuser::GetDC(hwnd);
     if hdc.is_null() {
@@ -182,6 +191,11 @@ pub unsafe fn get_hwnd_dpi(hwnd: HWND) -> u32 {
             BASE_DPI
         }
     }
+}
+
+#[cfg(not(feature = "dpi"))]
+pub unsafe fn get_hwnd_dpi(_hwnd: HWND) -> u32 {
+    BASE_DPI
 }
 
 pub fn get_hwnd_scale_factor(hwnd: HWND) -> f64 {

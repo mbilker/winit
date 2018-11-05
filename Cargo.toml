@@ -14,7 +14,10 @@ categories = ["gui"]
 features = ["icon_loading", "serde"]
 
 [features]
+default = []
+dpi = []
 icon_loading = ["image"]
+touch = []
 
 [dependencies]
 lazy_static = "1"
@@ -44,6 +47,7 @@ features = [
     "libloaderapi",
     "objbase",
     "ole2",
+    "processthreadsapi",
     "shellapi",
     "shellscalingapi",
     "shobjidl_core",
