@@ -10,10 +10,9 @@ use std::sync::mpsc::channel;
 use winapi::ctypes::c_int;
 use winapi::shared::minwindef::{BOOL, DWORD, FALSE, LPARAM, TRUE, UINT, WORD, WPARAM};
 use winapi::shared::windef::{HWND, LPPOINT, POINT, RECT};
-use winapi::um::{combaseapi, dwmapi, libloaderapi, winuser};
+use winapi::um::{combaseapi, libloaderapi, winuser};
 use winapi::um::objbase::COINIT_MULTITHREADED;
 use winapi::um::shobjidl_core::{CLSID_TaskbarList, ITaskbarList2};
-use winapi::um::wingdi::{CreateRectRgn, DeleteObject};
 use winapi::um::winnt::{LONG, LPCWSTR};
 
 use {
@@ -1018,33 +1017,6 @@ unsafe fn init(
         // Creating a mutex to track the current window state
         Arc::new(Mutex::new(window_state))
     };
-
-    // making the window transparent
-    if attributes.transparent && !pl_attribs.no_redirection_bitmap {
-        let region = CreateRectRgn(0, 0, -1, -1); // makes the window transparent
-
-        let bb = dwmapi::DWM_BLURBEHIND {
-            dwFlags: dwmapi::DWM_BB_ENABLE | dwmapi::DWM_BB_BLURREGION,
-            fEnable: 1,
-            hRgnBlur: region,
-            fTransitionOnMaximized: 0,
-        };
-
-        dwmapi::DwmEnableBlurBehindWindow(real_window.0, &bb);
-        DeleteObject(region as _);
-
-        if attributes.decorations {
-            // HACK: When opaque (opacity 255), there is a trail whenever
-            // the transparent window is moved. By reducing it to 254,
-            // the window is rendered properly.
-            let opacity = 254;
-
-            // The color key can be any value except for black (0x0).
-            let color_key = 0x0030c100;
-
-            winuser::SetLayeredWindowAttributes(real_window.0, color_key, opacity, winuser::LWA_ALPHA);
-        }
-    }
 
     let win = Window {
         window: real_window,

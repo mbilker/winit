@@ -39,13 +39,11 @@ core-graphics = "0.16"
 version = "0.3.6"
 features = [
     "combaseapi",
-    "dwmapi",
     "errhandlingapi",
     "hidusage",
     "libloaderapi",
     "objbase",
     "ole2",
-    "processthreadsapi",
     "shellapi",
     "shellscalingapi",
     "shobjidl_core",
