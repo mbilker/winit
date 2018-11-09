@@ -185,7 +185,7 @@ impl EventsLoop {
                     eprintln!("Locking mutex");
                     let mut thread_id = lock.lock();
                     eprintln!("GetCurrentThreadId");
-                    *thread_id = Some(processthreadsapi::GetCurrentProcessId());
+                    *thread_id = Some(processthreadsapi::GetCurrentThreadId());
                     cvar.notify_one();
                 }
                 // Then only we unblock the `new()` function. We are sure that we don't call
@@ -370,6 +370,7 @@ impl EventsLoopProxy {
         F: FnMut(Inserter) + Send + 'static,
     {
         println!("About to send to thread");
+
         // We are using double-boxing here because it make casting back much easier
         let double_box = Box::new(Box::new(function) as Box<FnMut(_)>);
         let raw = Box::into_raw(double_box);
@@ -384,7 +385,10 @@ impl EventsLoopProxy {
         };
         // PostThreadMessage can only fail if the thread ID is invalid (which shouldn't happen as
         // the events loop is still alive) or if the queue is full.
-        assert!(res != 0, "PostThreadMessage failed; is the messages queue full?");
+        if res == 0 {
+            let errno = unsafe { winapi::um::errhandlingapi::GetLastError() };
+            panic!("PostThreadMessage failed; is the messages queue full? (GetLastError = {})", errno);
+        }
     }
 }
 
