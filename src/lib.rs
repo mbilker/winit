@@ -95,6 +95,7 @@ extern crate image;
 #[cfg(feature = "serde")]
 #[macro_use]
 extern crate serde;
+extern crate parking_lot;
 
 #[cfg(target_os = "windows")]
 extern crate winapi;
@@ -109,8 +110,6 @@ extern crate core_foundation;
 extern crate core_graphics;
 #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
 extern crate x11_dl;
-#[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
-extern crate parking_lot;
 #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
 extern crate percent_encoding;
 #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]

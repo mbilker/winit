@@ -25,6 +25,7 @@ libc = "0.2"
 log = "0.4"
 image = { version = "0.20", optional = true }
 serde = { version = "1", optional = true, features = ["serde_derive"] }
+parking_lot = "0.6.4"
 
 [target.'cfg(target_os = "android")'.dependencies.android_glue]
 version = "0.2"
@@ -64,5 +65,4 @@ features = [
 wayland-client = { version = "0.21", features = [ "dlopen", "egl", "cursor"] }
 smithay-client-toolkit = "0.4"
 x11-dl = "2.18.3"
-parking_lot = "0.6"
 percent-encoding = "1.0"

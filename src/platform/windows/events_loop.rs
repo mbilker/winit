@@ -15,15 +15,22 @@
 use std::{mem, ptr, thread};
 use std::cell::RefCell;
 use std::collections::HashMap;
+#[cfg(feature = "dpi")]
 use std::os::windows::io::AsRawHandle;
-use std::sync::{Arc, Barrier, mpsc, Mutex};
+use std::sync::{Arc, mpsc};
 
+use parking_lot::{Condvar, Mutex};
+
+#[cfg(feature = "dpi")]
 use winapi::ctypes::c_int;
+#[cfg(feature = "dpi")]
 use winapi::shared::minwindef::{
     BOOL,
+    INT,
+};
+use winapi::shared::minwindef::{
     DWORD,
     HIWORD,
-    INT,
     LOWORD,
     LPARAM,
     LRESULT,
@@ -152,13 +159,9 @@ impl EventsLoop {
         let (tx, rx) = mpsc::channel();
 
         // Local barrier in order to block the `new()` function until the background thread has
-        // an events queue.
-        let barrier = Arc::new(Barrier::new(2));
-        let barrier_clone = barrier.clone();
-
-        // The thread id on Windows XP
-        let thread_id = Arc::new(Mutex::new(None));
-        let thread_id_clone = thread_id.clone();
+        // an events queue and gets the thread id.
+        let pair = Arc::new((Mutex::new(None), Condvar::new()));
+        let pair_clone = pair.clone();
 
         let _thread = thread::spawn(move || {
             CONTEXT_STASH.with(|context_stash| {
@@ -177,20 +180,18 @@ impl EventsLoop {
                 eprintln!("IsGUIThread");
                 winuser::IsGUIThread(1);
                 {
+                    let &(ref lock, ref cvar) = &*pair_clone;
+
+                    eprintln!("Locking mutex");
+                    let mut thread_id = lock.lock();
                     eprintln!("GetCurrentThreadId");
-                    let mut mutex = match thread_id_clone.lock() {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("Failed to acquire mutex: {:?}", e);
-                            panic!("mutex acquisition failed");
-                        },
-                    };
-                    *mutex = Some(processthreadsapi::GetCurrentThreadId());
+                    *thread_id = Some(processthreadsapi::GetCurrentProcessId());
+                    cvar.notify_one();
                 }
                 // Then only we unblock the `new()` function. We are sure that we don't call
                 // `PostThreadMessageA()` before `new()` returns.
-                barrier_clone.wait();
-                drop(barrier_clone);
+                //barrier_clone.wait();
+                //drop(barrier_clone);
 
                 let mut msg = mem::uninitialized();
 
@@ -198,6 +199,7 @@ impl EventsLoop {
                 loop {
                     if winuser::GetMessageW(&mut msg, ptr::null_mut(), 0, 0) == 0 {
                         // Only happens if the message is `WM_QUIT`.
+                        eprintln!("GetMessageW returned 0");
                         debug_assert_eq!(msg.message, winuser::WM_QUIT);
                         break;
                     }
@@ -222,13 +224,19 @@ impl EventsLoop {
 
 
         // Blocks this function until the background thread has an events loop. See other comments.
-        barrier.wait();
+        println!("Waiting for barrier...");
+        let &(ref lock, ref cvar) = &*pair;
+        let mut thread_id = lock.lock();
+        while thread_id.is_none() {
+            println!("waiting");
+            cvar.wait(&mut thread_id);
+        }
+        println!("Through the barrier");
         /*
         let thread_id = unsafe {
             let handle = mem::transmute(thread.as_raw_handle());
             processthreadsapi::GetThreadId(handle)
         };
-        */
         eprintln!("Waiting for thread id");
         let thread_id = match thread_id.lock() {
             Ok(v) => match *v {
@@ -244,6 +252,16 @@ impl EventsLoop {
             },
         };
         eprintln!("Received thread id");
+        */
+        let thread_id = match *thread_id {
+            Some(v) => v,
+            None => {
+                eprintln!("No thread id stored!");
+                eprintln!();
+                panic!("No thread id stored!");
+            },
+        };
+        eprintln!("Have thread id: {}", thread_id);
 
         EventsLoop {
             thread_id,
@@ -304,6 +322,7 @@ impl EventsLoop {
 impl Drop for EventsLoop {
     fn drop(&mut self) {
         unsafe {
+            println!("Dropping EventsLoop");
             // Posting `WM_QUIT` will cause `GetMessage` to stop.
             winuser::PostThreadMessageA(self.thread_id, winuser::WM_QUIT, 0, 0);
         }
@@ -350,6 +369,7 @@ impl EventsLoopProxy {
     where
         F: FnMut(Inserter) + Send + 'static,
     {
+        println!("About to send to thread");
         // We are using double-boxing here because it make casting back much easier
         let double_box = Box::new(Box::new(function) as Box<FnMut(_)>);
         let raw = Box::into_raw(double_box);
@@ -595,7 +615,7 @@ pub unsafe extern "system" fn callback(
                 let mut context_stash = context_stash.borrow_mut();
                 if let Some(context_stash) = context_stash.as_mut() {
                     if let Some(w) = context_stash.windows.get_mut(&window) {
-                        let mut w = w.lock().unwrap();
+                        let mut w = w.lock();
                         if !w.mouse_in_window {
                             w.mouse_in_window = true;
                             return true;
@@ -640,7 +660,7 @@ pub unsafe extern "system" fn callback(
                 let mut context_stash = context_stash.borrow_mut();
                 if let Some(context_stash) = context_stash.as_mut() {
                     if let Some(w) = context_stash.windows.get_mut(&window) {
-                        let mut w = w.lock().unwrap();
+                        let mut w = w.lock();
                         if w.mouse_in_window {
                             w.mouse_in_window = false;
                             return true;
@@ -1039,7 +1059,7 @@ pub unsafe extern "system" fn callback(
                     .as_ref()
                     .and_then(|cstash| cstash.windows.get(&window))
                     .map(|window_state_mutex| {
-                        let window_state = window_state_mutex.lock().unwrap();
+                        let window_state = window_state_mutex.lock();
                         if window_state.mouse_in_window {
                             let cursor = winuser::LoadCursorW(
                                 ptr::null_mut(),
@@ -1074,7 +1094,7 @@ pub unsafe extern "system" fn callback(
             CONTEXT_STASH.with(|context_stash| {
                 if let Some(cstash) = context_stash.borrow().as_ref() {
                     if let Some(wstash) = cstash.windows.get(&window) {
-                        let window_state = wstash.lock().unwrap();
+                        let window_state = wstash.lock();
 
                         if window_state.min_size.is_some() || window_state.max_size.is_some() {
                             let style = winuser::GetWindowLongA(window, winuser::GWL_STYLE) as DWORD;
@@ -1113,7 +1133,7 @@ pub unsafe extern "system" fn callback(
                     .as_ref()
                     .and_then(|cstash| cstash.windows.get(&window))
                     .map(|window_state_mutex| {
-                        let mut window_state = window_state_mutex.lock().unwrap();
+                        let mut window_state = window_state_mutex.lock();
                         let suppress_resize = window_state.saved_window_info
                             .as_mut()
                             .map(|saved_window_info| {

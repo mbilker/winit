@@ -1,48 +1,69 @@
 #![allow(non_snake_case, unused_unsafe)]
 
+#[cfg(feature = "dpi")]
 use std::mem;
+#[cfg(feature = "dpi")]
 use std::os::raw::c_void;
+#[cfg(feature = "dpi")]
 use std::sync::{Once, ONCE_INIT};
 
+#[cfg(feature = "dpi")]
 use winapi::shared::minwindef::{BOOL, UINT, FALSE};
+#[cfg(feature = "dpi")]
 use winapi::shared::windef::{
     DPI_AWARENESS_CONTEXT,
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE,
+};
+use winapi::shared::windef::{
     HMONITOR,
     HWND,
 };
+#[cfg(feature = "dpi")]
 use winapi::shared::winerror::S_OK;
+#[cfg(feature = "dpi")]
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
+#[cfg(feature = "dpi")]
 use winapi::um::shellscalingapi::{
     MDT_EFFECTIVE_DPI,
     MONITOR_DPI_TYPE,
     PROCESS_DPI_AWARENESS,
     PROCESS_PER_MONITOR_DPI_AWARE,
 };
+#[cfg(feature = "dpi")]
 use winapi::um::wingdi::{GetDeviceCaps, LOGPIXELSX};
+#[cfg(feature = "dpi")]
 use winapi::um::winnt::{HRESULT, LPCSTR};
+#[cfg(feature = "dpi")]
 use winapi::um::winuser::{self, MONITOR_DEFAULTTONEAREST};
 
+#[cfg(feature = "dpi")]
 const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: DPI_AWARENESS_CONTEXT = -4isize as _;
 
+#[cfg(feature = "dpi")]
 type SetProcessDPIAware = unsafe extern "system" fn () -> BOOL;
+#[cfg(feature = "dpi")]
 type SetProcessDpiAwareness = unsafe extern "system" fn (
     value: PROCESS_DPI_AWARENESS,
 ) -> HRESULT;
+#[cfg(feature = "dpi")]
 type SetProcessDpiAwarenessContext = unsafe extern "system" fn (
     value: DPI_AWARENESS_CONTEXT,
 ) -> BOOL;
+#[cfg(feature = "dpi")]
 type GetDpiForWindow = unsafe extern "system" fn (hwnd: HWND) -> UINT;
+#[cfg(feature = "dpi")]
 type GetDpiForMonitor = unsafe extern "system" fn (
     hmonitor: HMONITOR,
     dpi_type: MONITOR_DPI_TYPE,
     dpi_x: *mut UINT,
     dpi_y: *mut UINT,
 ) -> HRESULT;
+#[cfg(feature = "dpi")]
 type EnableNonClientDpiScaling = unsafe extern "system" fn (hwnd: HWND) -> BOOL;
 
 // Helper function to dynamically load function pointer.
 // `library` and `function` must be zero-terminated.
+#[cfg(feature = "dpi")]
 fn get_function_impl(library: &str, function: &str) -> Option<*const c_void> {
     assert_eq!(library.chars().last(), Some('\0'));
     assert_eq!(function.chars().last(), Some('\0'));
@@ -61,6 +82,7 @@ fn get_function_impl(library: &str, function: &str) -> Option<*const c_void> {
     Some(function_ptr as _)
 }
 
+#[cfg(feature = "dpi")]
 macro_rules! get_function {
     ($lib:expr, $func:ident) => {
         get_function_impl(concat!($lib, '\0'), concat!(stringify!($func), '\0'))
@@ -120,8 +142,8 @@ pub fn become_dpi_aware(enable: bool) {
 pub fn become_dpi_aware(_enable: bool) {
 }
 
+#[cfg(feature = "dpi")]
 pub fn enable_non_client_dpi_scaling(hwnd: HWND) {
-    #[cfg(feature = "dpi")]
     unsafe {
         if let Some(EnableNonClientDpiScaling) = *ENABLE_NON_CLIENT_DPI_SCALING {
             EnableNonClientDpiScaling(hwnd);
@@ -129,8 +151,12 @@ pub fn enable_non_client_dpi_scaling(hwnd: HWND) {
     }
 }
 
+#[cfg(not(feature = "dpi"))]
+pub fn enable_non_client_dpi_scaling(_hwnd: HWND) {
+}
+
+#[cfg(feature = "dpi")]
 pub fn get_monitor_dpi(hmonitor: HMONITOR) -> Option<u32> {
-    #[cfg(feature = "dpi")]
     unsafe {
         if let Some(GetDpiForMonitor) = *GET_DPI_FOR_MONITOR {
             // We are on Windows 8.1 or later.
@@ -144,6 +170,11 @@ pub fn get_monitor_dpi(hmonitor: HMONITOR) -> Option<u32> {
             }
         }
     }
+    None
+}
+
+#[cfg(not(feature = "dpi"))]
+pub fn get_monitor_dpi(_hmonitor: HMONITOR) -> Option<u32> {
     None
 }
 
