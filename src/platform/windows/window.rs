@@ -83,15 +83,24 @@ impl Window {
         w_attr: WindowAttributes,
         pl_attr: PlatformSpecificWindowBuilderAttributes,
     ) -> Result<Window, CreationError> {
-        let (tx, rx) = crossbeam_channel::bounded(1);
+        let (tx, rx) = crossbeam_channel::unbounded();
         let proxy = events_loop.create_proxy();
         events_loop.execute_in_thread(move |inserter| {
             // We dispatch an `init` function because of code style.
             // First person to remove the need for cloning here gets a cookie!
+            eprintln!("Calling window::init");
             let win = unsafe { init(w_attr.clone(), pl_attr.clone(), inserter, proxy.clone()) };
+            eprintln!("window::init done");
             let _ = tx.send(win);
+            eprintln!("Sent back window");
         });
-        rx.recv().unwrap()
+        match rx.recv() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("error occurred: {:?}", e);
+                panic!(e);
+            },
+        }
     }
 
     pub fn set_title(&self, text: &str) {
@@ -391,7 +400,7 @@ impl Window {
         }
         let window = self.window.clone();
         let window_state = Arc::clone(&self.window_state);
-        let (tx, rx) = crossbeam_channel::bounded(1);
+        let (tx, rx) = crossbeam_channel::unbounded();
         self.events_loop_proxy.execute_in_thread(move |_| {
             let result = unsafe { Self::grab_cursor_inner(&window, grab) };
             if result.is_ok() {
@@ -416,7 +425,7 @@ impl Window {
         let window_state_lock = self.window_state.lock();
         // We don't want to increment/decrement the display count more than once!
         if hide == window_state_lock.cursor_hidden { return; }
-        let (tx, rx) = crossbeam_channel::bounded(1);
+        let (tx, rx) = crossbeam_channel::unbounded();
         let window_state = Arc::clone(&self.window_state);
         self.events_loop_proxy.execute_in_thread(move |_| {
             unsafe { Self::hide_cursor_inner(hide) };
