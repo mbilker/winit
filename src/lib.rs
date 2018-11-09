@@ -96,6 +96,7 @@ extern crate image;
 #[macro_use]
 extern crate serde;
 extern crate parking_lot;
+extern crate crossbeam_channel;
 
 #[cfg(target_os = "windows")]
 extern crate winapi;

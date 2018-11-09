@@ -17,8 +17,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 #[cfg(feature = "dpi")]
 use std::os::windows::io::AsRawHandle;
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 
+use crossbeam_channel::{self, Receiver, Sender};
 use parking_lot::{Condvar, Mutex};
 
 #[cfg(feature = "dpi")]
@@ -144,7 +145,7 @@ pub struct EventsLoop {
     // Id of the background thread from the Win32 API.
     thread_id: DWORD,
     // Receiver for the events. The sender is in the background thread.
-    receiver: mpsc::Receiver<Event>,
+    receiver: Receiver<Event>,
 }
 
 impl EventsLoop {
@@ -156,7 +157,7 @@ impl EventsLoop {
         become_dpi_aware(dpi_aware);
 
         // The main events transfer channel.
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = crossbeam_channel::unbounded();
 
         // Local barrier in order to block the `new()` function until the background thread has
         // an events queue and gets the thread id.
@@ -206,11 +207,15 @@ impl EventsLoop {
 
                     match msg.message {
                         x if x == *EXEC_MSG_ID => {
+                            eprintln!("EXEC_MSG_ID received");
                             let mut function: Box<Box<FnMut(Inserter)>> = Box::from_raw(msg.wParam as usize as *mut _);
                             function(Inserter(ptr::null_mut()));
+                            eprintln!("EXEC_MSG_ID completed");
                         },
                         x if x == *WAKEUP_MSG_ID => {
+                            eprintln!("WAKEUP_MSG_ID received");
                             send_event(Event::Awakened);
+                            eprintln!("WAKEUP_MSG_ID completed");
                         },
                         _ => {
                             // Calls `callback` below.
@@ -387,6 +392,7 @@ impl EventsLoopProxy {
         // the events loop is still alive) or if the queue is full.
         if res == 0 {
             let errno = unsafe { winapi::um::errhandlingapi::GetLastError() };
+            eprintln!("PostThreadMessage failed; is the messages queue full? (GetLastError = {})", errno);
             panic!("PostThreadMessage failed; is the messages queue full? (GetLastError = {})", errno);
         }
     }
@@ -432,7 +438,7 @@ lazy_static! {
 // in a thread-local variable.
 thread_local!(static CONTEXT_STASH: RefCell<Option<ThreadLocalData>> = RefCell::new(None));
 struct ThreadLocalData {
-    sender: mpsc::Sender<Event>,
+    sender: Sender<Event>,
     windows: HashMap<HWND, Arc<Mutex<WindowState>>>,
     file_drop_handlers: HashMap<HWND, FileDropHandler>, // Each window has its own drop handler.
     mouse_buttons_down: u32,

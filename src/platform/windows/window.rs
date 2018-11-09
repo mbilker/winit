@@ -5,8 +5,8 @@ use std::cell::Cell;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::Arc;
-use std::sync::mpsc::channel;
 
+use crossbeam_channel;
 use parking_lot::Mutex;
 
 use winapi::ctypes::c_int;
@@ -83,7 +83,7 @@ impl Window {
         w_attr: WindowAttributes,
         pl_attr: PlatformSpecificWindowBuilderAttributes,
     ) -> Result<Window, CreationError> {
-        let (tx, rx) = channel();
+        let (tx, rx) = crossbeam_channel::bounded(1);
         let proxy = events_loop.create_proxy();
         events_loop.execute_in_thread(move |inserter| {
             // We dispatch an `init` function because of code style.
@@ -391,7 +391,7 @@ impl Window {
         }
         let window = self.window.clone();
         let window_state = Arc::clone(&self.window_state);
-        let (tx, rx) = channel();
+        let (tx, rx) = crossbeam_channel::bounded(1);
         self.events_loop_proxy.execute_in_thread(move |_| {
             let result = unsafe { Self::grab_cursor_inner(&window, grab) };
             if result.is_ok() {
@@ -416,7 +416,7 @@ impl Window {
         let window_state_lock = self.window_state.lock();
         // We don't want to increment/decrement the display count more than once!
         if hide == window_state_lock.cursor_hidden { return; }
-        let (tx, rx) = channel();
+        let (tx, rx) = crossbeam_channel::bounded(1);
         let window_state = Arc::clone(&self.window_state);
         self.events_loop_proxy.execute_in_thread(move |_| {
             unsafe { Self::hide_cursor_inner(hide) };
